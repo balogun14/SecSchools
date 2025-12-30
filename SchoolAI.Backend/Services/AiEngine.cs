@@ -1,5 +1,6 @@
 using LLama;
 using LLama.Common;
+using LLama.Sampling;
 
 namespace SchoolAI.Backend.Services;
 
@@ -156,17 +157,20 @@ public class AiEngine : IAiEngine
             <|im_start|>assistant
             """;
 
-        var inferenceParams = new InferenceParams
-        {
-            MaxTokens = 512,           // Limit response length for low-end devices
-            Temperature = 0.7f,
-            TopP = 0.9f,
-            AntiPrompts = new List<string> { "<|im_end|>", "<|end|>" }
-        };
-
         // Use StatelessExecutor - simpler and doesn't require context state management
         using var context = _model.CreateContext(_modelParams);
         var executor = new StatelessExecutor(_model, _modelParams);
+
+        var inferenceParams = new InferenceParams
+        {
+            MaxTokens = 512,
+            AntiPrompts = new List<string> { "<|im_end|>", "<|end|>" },
+            SamplingPipeline = new DefaultSamplingPipeline
+            {
+                Temperature = 0.7f,
+                TopP = 0.9f
+            }
+        };
 
         // Generate response
         var response = new System.Text.StringBuilder();

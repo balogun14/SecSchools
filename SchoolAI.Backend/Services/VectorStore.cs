@@ -210,8 +210,12 @@ public class VectorStore : IVectorStore
 
     public async Task<List<string>> SearchSimilarAsync(string query, int topK = 3)
     {
+        _logger.LogInformation("SearchSimilarAsync called with query: {Query}, embeddings count: {Count}", 
+            query.Substring(0, Math.Min(50, query.Length)), _embeddings.Count);
+        
         if (_embeddings.Count == 0)
         {
+            _logger.LogWarning("No embeddings found in memory!");
             return new List<string>();
         }
 
