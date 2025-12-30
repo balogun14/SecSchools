@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+    <title>SchoolAI - Learn with AI</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">A</span>
+                <h1>SchoolAI</h1>
+            </div>
+            <p class="tagline">Learn smarter with AI-powered lesson assistance</p>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="teacher">
+                <span class="tab-icon">👩‍🏫</span>
+                Teacher Mode
+            </button>
+            <button class="tab-btn" data-tab="student">
+                <span class="tab-icon">👨‍🎓</span>
+                Student Mode
+            </button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="tab-content">
+            <!-- Teacher Tab -->
+            <section id="teacher-tab" class="tab-panel active">
+                <div class="panel-card">
+                    <h2>📚 Upload Lesson Notes</h2>
+                    <p class="description">Upload PDF documents containing your lesson materials. Students will be able to ask questions about this content.</p>
+                    
+                    <div class="upload-zone" id="upload-zone">
+                        <input type="file" id="file-input" accept=".pdf" hidden>
+                        <div class="upload-icon">📄</div>
+                        <p>Drag & drop your PDF here or <span class="upload-link">browse files</span></p>
+                        <p class="file-name" id="file-name"></p>
+                    </div>
+                    
+                    <button class="btn btn-primary" id="upload-btn" disabled>
+                        <span class="btn-icon">⬆️</span>
+                        Upload Document
+                    </button>
+                    
+                    <div class="status-message" id="upload-status"></div>
+                </div>
+
+                <div class="panel-card">
+                    <h2>✏️ Generate Assessment Questions</h2>
+                    <p class="description">Create questions based on your uploaded lesson content.</p>
+                    
+                    <div class="form-group">
+                        <label for="question-topic">Topic or Focus Area</label>
+                        <input type="text" id="question-topic" placeholder="e.g., Photosynthesis, World War II, Algebra">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="question-count">Number of Questions</label>
+                            <div class="slider-container">
+                                <input type="range" id="question-count" min="1" max="20" value="5">
+                                <span class="slider-value" id="count-display">5</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="question-format">Question Format</label>
+                            <select id="question-format">
+                                <option value="mixed">Mixed (Variety)</option>
+                                <option value="mcq">Multiple Choice</option>
+                                <option value="short_answer">Short Answer</option>
+                                <option value="true_false">True/False</option>
+                                <option value="essay">Essay Questions</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-secondary" id="generate-btn">
+                        <span class="btn-icon">✨</span>
+                        Generate Questions
+                    </button>
+                    
+                    <div class="output-area" id="questions-output"></div>
+                </div>
+            </section>
+
+            <!-- Student Tab -->
+            <section id="student-tab" class="tab-panel">
+                <div class="chat-container">
+                    <div class="chat-header">
+                        <h2>💬 Ask Questions About Your Lessons</h2>
+                        <p>Type your question below and I'll help you understand the material!</p>
+                    </div>
+                    
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="message ai-message">
+                            <div class="message-avatar">🤖</div>
+                            <div class="message-content">
+                                <p>Hello! I'm your AI learning assistant. Ask me any question about your lesson materials, and I'll help you understand!</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <input type="text" id="chat-input" placeholder="Type your question here..." autocomplete="off">
+                        <button class="btn btn-primary" id="send-btn">
+                            <span class="btn-icon">➤</span>
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="spinner"></div>
+            <p id="loading-text">Processing...</p>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

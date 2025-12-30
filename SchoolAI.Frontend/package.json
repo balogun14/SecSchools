@@ -1,0 +1,40 @@
+{
+  "name": "schoolai-frontend",
+  "version": "1.0.0",
+  "description": "SchoolAI - Local-First Desktop Application for Schools",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": ["education", "ai", "offline", "electron"],
+  "author": "SchoolAI",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.schoolai.app",
+    "productName": "SchoolAI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "renderer.js",
+      "styles.css"
+    ],
+    "extraResources": [
+      {
+        "from": "../SchoolAI.Backend/bin/Release/net8.0/win-x64/publish/",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
