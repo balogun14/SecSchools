@@ -92,6 +92,8 @@ public class VectorStore : IVectorStore
     public async Task IngestPdfAsync(Stream pdfStream, string filename)
     {
         _logger.LogInformation("Ingesting PDF: {Filename}", filename);
+        _logger.LogInformation("Memory before PDF extraction: {Memory} MB", 
+            GC.GetTotalMemory(false) / 1024 / 1024);
 
         // Extract text from PDF
         string fullText;
@@ -99,6 +101,9 @@ public class VectorStore : IVectorStore
         {
             fullText = string.Join("\n", pdf.GetPages().Select(p => p.Text));
         }
+        
+        _logger.LogInformation("Memory after PDF extraction: {Memory} MB", 
+            GC.GetTotalMemory(false) / 1024 / 1024);
 
         if (string.IsNullOrWhiteSpace(fullText))
         {
@@ -108,6 +113,8 @@ public class VectorStore : IVectorStore
         // Chunk the text
         var chunks = ChunkText(fullText, filename);
         _logger.LogInformation("Created {Count} chunks from PDF", chunks.Count);
+        _logger.LogInformation("Memory after chunking: {Memory} MB", 
+            GC.GetTotalMemory(false) / 1024 / 1024);
 
         // Store chunks and generate embeddings
         var totalChunks = chunks.Count;
@@ -116,13 +123,16 @@ public class VectorStore : IVectorStore
         foreach (var chunk in chunks)
         {
             processedChunks++;
-            _logger.LogInformation("Processing chunk {Current}/{Total} ({Percent}%)", 
-                processedChunks, totalChunks, (processedChunks * 100) / totalChunks);
+            if (processedChunks % 10 == 0 || processedChunks == 1)
+            {
+                _logger.LogInformation("Processing chunk {Current}/{Total} - Memory: {Memory} MB", 
+                    processedChunks, totalChunks, GC.GetTotalMemory(false) / 1024 / 1024);
+            }
             
             // Store text in LiteDB
             _chunksCollection!.Insert(chunk);
 
-            // Generate embedding
+            // Generate embedding (now using lightweight hash-based approach)
             var embedding = await _aiEngine.GenerateEmbeddingAsync(chunk.Content);
 
             // Add to in-memory embeddings
@@ -135,6 +145,9 @@ public class VectorStore : IVectorStore
 
         // Persist embeddings to JSON
         await SaveEmbeddingsAsync();
+        
+        _logger.LogInformation("Memory after ingestion complete: {Memory} MB", 
+            GC.GetTotalMemory(false) / 1024 / 1024);
 
         _logger.LogInformation("Successfully ingested PDF: {Filename}", filename);
     }
@@ -146,18 +159,31 @@ public class VectorStore : IVectorStore
         
         int position = 0;
         int chunkIndex = 0;
+        int lastPosition = -1; // Track to prevent infinite loop
 
         while (position < cleanText.Length)
         {
+            // Safety check: if position hasn't advanced, force it forward
+            if (position == lastPosition)
+            {
+                position++;
+                continue;
+            }
+            lastPosition = position;
+            
             int endPosition = Math.Min(position + CHUNK_SIZE, cleanText.Length);
             
             // Try to break at a sentence or paragraph boundary
             if (endPosition < cleanText.Length)
             {
-                var breakPoint = cleanText.LastIndexOfAny(new[] { '.', '\n', '!', '?' }, endPosition, Math.Min(100, endPosition - position));
-                if (breakPoint > position)
+                int searchLength = Math.Min(100, endPosition - position);
+                if (searchLength > 0)
                 {
-                    endPosition = breakPoint + 1;
+                    var breakPoint = cleanText.LastIndexOfAny(new[] { '.', '\n', '!', '?' }, endPosition - 1, searchLength);
+                    if (breakPoint > position)
+                    {
+                        endPosition = breakPoint + 1;
+                    }
                 }
             }
 
@@ -175,12 +201,8 @@ public class VectorStore : IVectorStore
                 });
             }
 
-            // Move position with overlap
-            position = endPosition - CHUNK_OVERLAP;
-            if (position <= chunks.LastOrDefault()?.Content.Length - CHUNK_OVERLAP)
-            {
-                position = endPosition; // Avoid infinite loop
-            }
+            // Move position forward - simple approach, no overlap needed for basic retrieval
+            position = endPosition;
         }
 
         return chunks;

@@ -18,8 +18,6 @@ public class AiEngine : IAiEngine
     private const string MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf";
     
     private LLamaWeights? _model;
-    private LLamaWeights? _embedderWeights;
-    private LLamaEmbedder? _embedder;
     private readonly ILogger<AiEngine> _logger;
     private bool _isInitialized = false;
     private readonly SemaphoreSlim _initLock = new(1, 1);
@@ -57,30 +55,26 @@ public class AiEngine : IAiEngine
             }
 
             // Configure for CPU-only, low-end device optimization
+            // MINIMAL memory configuration for low-RAM systems
             _modelParams = new ModelParams(_modelPath)
             {
-                ContextSize = 2048,      // Reduced for low-end devices
+                ContextSize = 1024,      // Minimal context for low memory
                 GpuLayerCount = 0,       // CPU only - CRITICAL
-                BatchSize = 128,         // Smaller batch for memory efficiency
-                Threads = Math.Max(1, Environment.ProcessorCount / 2), // Use half CPU cores
+                BatchSize = 64,          // Minimal batch size
+                Threads = Math.Max(1, Environment.ProcessorCount / 2),
             };
 
             _logger.LogInformation("Loading model from {ModelPath}...", _modelPath);
+            _logger.LogInformation("Current process memory before model load: {Memory} MB", 
+                GC.GetTotalMemory(false) / 1024 / 1024);
+            
             _model = await LLamaWeights.LoadFromFileAsync(_modelParams);
             
-            // Create embedder for vector search
-            var embedderParams = new ModelParams(_modelPath)
-            {
-                ContextSize = 512,       // Smaller context for embeddings
-                GpuLayerCount = 0,
-                BatchSize = 512,         // Must equal UBatchSize for embeddings
-                UBatchSize = 512,        // Required for non-causal models
-                Threads = Math.Max(1, Environment.ProcessorCount / 2),
-                Embeddings = true        // Enable embedding mode
-            };
+            _logger.LogInformation("Current process memory after model load: {Memory} MB", 
+                GC.GetTotalMemory(false) / 1024 / 1024);
             
-            _embedderWeights = await LLamaWeights.LoadFromFileAsync(embedderParams);
-            _embedder = new LLamaEmbedder(_embedderWeights, embedderParams);
+            // Note: Embeddings are now generated using lightweight hash-based approach
+            // instead of LLM embeddings to save memory on low-end devices
 
             _isInitialized = true;
             _logger.LogInformation("AI Engine initialized successfully.");
@@ -153,14 +147,14 @@ public class AiEngine : IAiEngine
             throw new InvalidOperationException("AI Engine not initialized. Call InitializeAsync first.");
         }
 
-        using var context = _model.CreateContext(_modelParams);
-        var executor = new InteractiveExecutor(context);
-
-        var chatHistory = new ChatHistory();
-        chatHistory.AddMessage(AuthorRole.System, systemPrompt);
-        chatHistory.AddMessage(AuthorRole.User, userMessage);
-
-        var session = new ChatSession(executor, chatHistory);
+        // Format prompt using Qwen's chat template
+        var prompt = $"""
+            <|im_start|>system
+            {systemPrompt}<|im_end|>
+            <|im_start|>user
+            {userMessage}<|im_end|>
+            <|im_start|>assistant
+            """;
 
         var inferenceParams = new InferenceParams
         {
@@ -170,8 +164,13 @@ public class AiEngine : IAiEngine
             AntiPrompts = new List<string> { "<|im_end|>", "<|end|>" }
         };
 
+        // Use StatelessExecutor - simpler and doesn't require context state management
+        using var context = _model.CreateContext(_modelParams);
+        var executor = new StatelessExecutor(_model, _modelParams);
+
+        // Generate response
         var response = new System.Text.StringBuilder();
-        await foreach (var text in session.ChatAsync(chatHistory, inferenceParams))
+        await foreach (var text in executor.InferAsync(prompt, inferenceParams))
         {
             response.Append(text);
         }
@@ -179,25 +178,74 @@ public class AiEngine : IAiEngine
         return response.ToString().Trim();
     }
 
-    public async Task<float[]> GenerateEmbeddingAsync(string text)
+    public Task<float[]> GenerateEmbeddingAsync(string text)
     {
-        if (!_isInitialized || _embedder == null)
-        {
-            throw new InvalidOperationException("AI Engine not initialized. Call InitializeAsync first.");
-        }
-
-        // Generate embedding for the text
-        var embeddings = await _embedder.GetEmbeddings(text);
+        // Use lightweight hash-based embeddings instead of LLM-based embeddings
+        // This is MUCH more memory efficient for CPU-only devices
+        // Uses a simple bag-of-words with hashing trick approach
         
-        // Return the first embedding (there's typically only one for single text input)
-        return embeddings.SelectMany(x => x).ToArray();
+        const int embeddingDimension = 256; // Small embedding size for efficiency
+        var embedding = new float[embeddingDimension];
+        
+        // Tokenize: simple whitespace + lowercase
+        var tokens = text.ToLowerInvariant()
+            .Split(new[] { ' ', '\t', '\n', '\r', '.', ',', '!', '?', ';', ':', '"', '\'', '(', ')', '[', ']', '{', '}' }, 
+                   StringSplitOptions.RemoveEmptyEntries);
+        
+        foreach (var token in tokens)
+        {
+            // Hash each token to a bucket using a simple hash
+            var hash = GetStableHash(token);
+            var bucket = Math.Abs(hash) % embeddingDimension;
+            
+            // Use sign of secondary hash for direction (feature hashing trick)
+            var sign = (GetStableHash(token + "_sign") % 2 == 0) ? 1f : -1f;
+            embedding[bucket] += sign;
+            
+            // Also add bigram features for better context
+            if (token.Length > 2)
+            {
+                for (int i = 0; i < token.Length - 1; i++)
+                {
+                    var bigram = token.Substring(i, 2);
+                    var bigramHash = GetStableHash(bigram);
+                    var bigramBucket = Math.Abs(bigramHash) % embeddingDimension;
+                    var bigramSign = (GetStableHash(bigram + "_sign") % 2 == 0) ? 0.5f : -0.5f;
+                    embedding[bigramBucket] += bigramSign;
+                }
+            }
+        }
+        
+        // L2 normalize the embedding
+        var magnitude = (float)Math.Sqrt(embedding.Sum(x => x * x));
+        if (magnitude > 0)
+        {
+            for (int i = 0; i < embedding.Length; i++)
+            {
+                embedding[i] /= magnitude;
+            }
+        }
+        
+        return Task.FromResult(embedding);
+    }
+    
+    private static int GetStableHash(string str)
+    {
+        // Simple stable hash that doesn't change between runs
+        unchecked
+        {
+            int hash = 17;
+            foreach (char c in str)
+            {
+                hash = hash * 31 + c;
+            }
+            return hash;
+        }
     }
 
     public void Dispose()
     {
         _model?.Dispose();
-        _embedderWeights?.Dispose();
-        _embedder?.Dispose();
         _initLock.Dispose();
     }
 }
